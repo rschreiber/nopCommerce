@@ -145,9 +145,8 @@ namespace Nop.Services.Media
         /// Get picture (thumb) local path
         /// </summary>
         /// <param name="thumbFileName">Filename</param>
-        /// <param name="thumbsPath">Thumb path</param>
         /// <returns>Local picture thumb path</returns>
-        protected override string GetThumbLocalPath(string thumbFileName, string thumbsPath ="")
+        protected override string GetThumbLocalPath(string thumbFileName)
         {
             var path = _azureBlobStorageAppendContainerName ? _azureBlobStorageContainerName + "/" : string.Empty;
 

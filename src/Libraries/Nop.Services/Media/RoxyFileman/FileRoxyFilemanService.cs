@@ -626,6 +626,23 @@ namespace Nop.Services.Media.RoxyFileman
         {
             //do nothing
         }
+        
+        /// <summary>
+        /// Flush all images on disk
+        /// </summary>
+        /// <param name="removeOriginal">Specifies whether to delete original images</param>
+        public virtual void FlushAllImagesOnDisk(bool removeOriginal = true)
+        {
+            //do nothing
+        }
+
+        /// <summary>
+        /// Initial service configuration
+        /// </summary>
+        public virtual void Congigure()
+        {
+            //do nothing
+        }
 
         /// <summary>
         /// Move the directory

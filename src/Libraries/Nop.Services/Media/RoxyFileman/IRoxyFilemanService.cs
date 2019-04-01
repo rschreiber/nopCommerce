@@ -74,6 +74,12 @@ namespace Nop.Services.Media.RoxyFileman
         void FlushImagesOnDisk(string directoryPath);
 
         /// <summary>
+        /// Flush all images on disk
+        /// </summary>
+        /// <param name="removeOriginal">Specifies whether to delete original images</param>
+        void FlushAllImagesOnDisk(bool removeOriginal = true);
+
+        /// <summary>
         /// Move the directory
         /// </summary>
         /// <param name="sourcePath">Path to the source directory</param>
@@ -149,5 +155,10 @@ namespace Nop.Services.Media.RoxyFileman
         /// Gets a configuration file path
         /// </summary>
         string GetConfigurationFilePath();
+
+        /// <summary>
+        /// Initial service configuration
+        /// </summary>
+        void Congigure();
     }
 }

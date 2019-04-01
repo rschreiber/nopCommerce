@@ -3,6 +3,10 @@ using Microsoft.AspNetCore.Http;
 using Nop.Core;
 using Nop.Core.Domain.Catalog;
 using Nop.Core.Domain.Media;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.Primitives;
 
 namespace Nop.Services.Media
 {
@@ -17,6 +21,27 @@ namespace Nop.Services.Media
         /// <param name="mimeType">Mime type</param>
         /// <returns>File extension</returns>
         string GetFileExtensionFromMimeType(string mimeType);
+
+        /// <summary>
+        /// Encode the image into a byte array in accordance with the specified image format
+        /// </summary>
+        /// <typeparam name="T">Pixel data type</typeparam>
+        /// <param name="image">Image data</param>
+        /// <param name="imageFormat">Image format</param>
+        /// <param name="quality">Quality index that will be used to encode the image</param>
+        /// <returns>Image binary data</returns>
+        byte[] EncodeImage<T>(Image<T> image, IImageFormat imageFormat, int? quality = null)
+            where T : struct, IPixel<T>;
+
+        /// <summary>
+        /// Calculates picture dimensions whilst maintaining aspect
+        /// </summary>
+        /// <param name="originalSize">The original picture size</param>
+        /// <param name="targetSize">The target picture size (longest side)</param>
+        /// <param name="resizeType">Resize type</param>
+        /// <param name="ensureSizePositive">A value indicating whether we should ensure that size values are positive</param>
+        /// <returns></returns>
+        Size CalculateDimensions(Size originalSize, int targetSize, ResizeType resizeType = ResizeType.LongestSide, bool ensureSizePositive = true);
 
         /// <summary>
         /// Gets the loaded picture binary depending on picture storage settings

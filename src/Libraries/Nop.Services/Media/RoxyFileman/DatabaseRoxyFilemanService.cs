@@ -3,12 +3,16 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Nop.Core.Data;
 using Nop.Core.Domain.Media;
 using Nop.Core.Infrastructure;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
+using SixLabors.ImageSharp.Processing.Transforms;
 
 namespace Nop.Services.Media.RoxyFileman
 {
@@ -20,17 +24,20 @@ namespace Nop.Services.Media.RoxyFileman
         #region Fields
 
         private readonly IPictureService _pictureService;
+        private readonly IRepository<Picture> _pictureRepository;
 
         #endregion
         
         #region Ctor
 
         public DatabaseRoxyFilemanService(IPictureService pictureService,
+            IRepository<Picture> pictureRepository,
             IHostingEnvironment hostingEnvironment,
             IHttpContextAccessor httpContextAccessor,
             INopFileProvider fileProvider) : base(hostingEnvironment, httpContextAccessor, fileProvider)
         {
             this._pictureService = pictureService;
+            this._pictureRepository = pictureRepository;
         }
 
         #endregion
@@ -58,16 +65,11 @@ namespace Nop.Services.Media.RoxyFileman
         {
             var sourceVirtualPath = _fileProvider.GetVirtualPath(_fileProvider.GetDirectoryName(filePath));
             var fileName = _fileProvider.GetFileNameWithoutExtension(filePath);
-
-            Picture picture = null;
-
-            if (int.TryParse(fileName.Split('_')[0], out var pictureId))
-            {
-                picture = _pictureService.GetPictureById(pictureId);
-            }
-
-            return picture ?? _pictureService.GetPictures(sourceVirtualPath.TrimEnd('/'))
+            
+            var picture = _pictureService.GetPictures(sourceVirtualPath.TrimEnd('/'))
                        .FirstOrDefault(p => fileName.Contains(p.SeoFilename));
+
+            return picture;
         }
 
         /// <summary>
@@ -133,6 +135,106 @@ namespace Nop.Services.Media.RoxyFileman
             }
         }
 
+        /// <summary>
+        /// Save picture by picture virtual path
+        /// </summary>
+        /// <param name="picture">Picture instance</param>
+        /// <param name="targetSize">The target picture size (longest side)</param>
+        protected virtual void SavePictureByVirtualPath(Picture picture, int targetSize = 0)
+        {
+            if (string.IsNullOrEmpty(picture?.VirtualPath) || string.IsNullOrEmpty(picture.SeoFilename))
+                return;
+
+            var pictureBinary = _pictureService.LoadPictureBinary(picture);
+
+            if (pictureBinary == null || pictureBinary.Length == 0)
+                return;
+
+            var seoFileName = picture.SeoFilename;
+
+            var lastPart = _pictureService.GetFileExtensionFromMimeType(picture.MimeType);
+           
+            var thumbFileName = targetSize == 0 ? $"{seoFileName}.{lastPart}" : $"{seoFileName}_{targetSize}.{lastPart}";
+
+            //TODO: remove Replace("/", @"\") after implement UNIX support
+            var thumbsDirectoryPath = _fileProvider.GetAbsolutePath(picture.VirtualPath.TrimStart('~').Trim('/').Replace("/", @"\"));
+            _fileProvider.CreateDirectory(thumbsDirectoryPath);
+            var thumbFilePath =_fileProvider.Combine(thumbsDirectoryPath, thumbFileName);
+
+            if (picture.IsNew)
+            {
+                // delete old file if exist
+                _fileProvider.DeleteFile(thumbFilePath);
+
+                //we do not validate picture binary here to ensure that no exception ("Parameter is not valid") will be thrown
+                _pictureService.UpdatePicture(picture.Id,
+                    pictureBinary,
+                    picture.MimeType,
+                    picture.SeoFilename,
+                    picture.AltAttribute,
+                    picture.TitleAttribute,
+                    false,
+                    false);
+            }
+
+            //the named mutex helps to avoid creating the same files in different threads,
+            //and does not decrease performance significantly, because the code is blocked only for the specific file.
+            using (var mutex = new Mutex(false, thumbFileName))
+            {
+                if (_fileProvider.FileExists(thumbFilePath)) 
+                    return;
+
+                mutex.WaitOne();
+
+                //check, if the file was created, while we were waiting for the release of the mutex.
+                if (!_fileProvider.FileExists(thumbFilePath))
+                {
+                    byte[] pictureBinaryResized;
+                    if (targetSize != 0)
+                    {
+                        //resizing required
+                        using (var image = Image.Load(pictureBinary, out var imageFormat))
+                        {
+                            image.Mutate(imageProcess => imageProcess.Resize(new ResizeOptions
+                            {
+                                Mode = ResizeMode.Max,
+                                Size = _pictureService.CalculateDimensions(image.Size(), targetSize)
+                            }));
+
+                            pictureBinaryResized = _pictureService.EncodeImage(image, imageFormat);
+                        }
+                    }
+                    else
+                    {
+                        //create a copy of pictureBinary
+                        pictureBinaryResized = pictureBinary.ToArray();
+                    }
+
+                    //save
+                    _fileProvider.WriteAllBytes(thumbFilePath, pictureBinaryResized);
+                }
+
+                mutex.ReleaseMutex();
+            }
+        }
+
+        /// <summary>
+        /// Flush image on disk
+        /// </summary>
+        /// <param name="picture">Image to store on disk</param>
+        /// <param name="maxWidth">Max image width</param>
+        /// <param name="maxHeight">Max image height</param>
+        protected virtual void FlushImages(Picture picture, int maxWidth, int maxHeight)
+        {
+            var image = Image.Load(picture.PictureBinary.BinaryData);
+
+            maxWidth = image.Width > maxWidth ? maxWidth : 0;
+            maxHeight = image.Height > maxHeight ? maxHeight : 0;
+
+            //save picture to folder if its not exists
+            SavePictureByVirtualPath(picture, maxWidth > maxHeight ? maxWidth : maxHeight);
+        }
+
         #endregion
 
         #region Methods
@@ -150,15 +252,72 @@ namespace Nop.Services.Media.RoxyFileman
                 int.TryParse(GetSetting("MAX_IMAGE_WIDTH"), out var width);
                 int.TryParse(GetSetting("MAX_IMAGE_HEIGHT"), out var height);
 
-                var image = Image.Load(picture.PictureBinary.BinaryData);
+                FlushImages(picture, width, height);
+            }
+        }
 
-                if (image.Width < width)
-                    width = image.Width;
-                if (image.Height < height)
-                    height = image.Height;
+        /// <summary>
+        /// Flush all images on disk
+        /// </summary>
+        /// <param name="removeOriginal">Specifies whether to delete original images</param>
+        public override void FlushAllImagesOnDisk(bool removeOriginal = true)
+        {
+            base.FlushAllImagesOnDisk(removeOriginal);
 
-                //save picture to folder if its not exists
-                _pictureService.GetPictureUrl(picture, width > height ? width : height);
+            var pageIndex = 0;
+            const int pageSize = 400;
+            int.TryParse(GetSetting("MAX_IMAGE_WIDTH"), out var width);
+            int.TryParse(GetSetting("MAX_IMAGE_HEIGHT"), out var height);
+
+            try
+            {
+                while (true)
+                {
+                    var pictures = _pictureService.GetPictures($"~{NopRoxyFilemanDefaults.DefaultRootDirectory}/",
+                        pageIndex, pageSize);
+                    pageIndex++;
+
+                    //all pictures flushed?
+                    if (!pictures.Any())
+                        break;
+
+                    foreach (var picture in pictures)
+                    {
+                        FlushImages(picture, width, height);
+                    }
+
+                    if(removeOriginal)
+                        _pictureRepository.Delete(pictures);
+                }
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        /// <summary>
+        /// Initial service configuration
+        /// </summary>
+        public override void Congigure()
+        {
+            foreach (var filePath in _fileProvider.GetFiles(_fileProvider.GetAbsolutePath(NopRoxyFilemanDefaults.DefaultRootDirectory.Split('/')), topDirectoryOnly: false))
+            {
+                var uniqueFileName = GetUniqueFileName(filePath, _fileProvider.GetFileNameWithoutExtension(filePath));
+
+                var picture = new Picture
+                {
+                    IsNew = true,
+                    SeoFilename = uniqueFileName,
+                    PictureBinary = new PictureBinary
+                    {
+                        BinaryData = _fileProvider.ReadAllBytes(filePath)
+                    }
+                };
+
+                _pictureService.InsertPicture(
+                    new RoxyFilemanFormFile(picture, _fileProvider.GetFileExtension(filePath)),
+                    string.Empty, _fileProvider.GetVirtualPath(filePath));
             }
         }
 
@@ -170,7 +329,7 @@ namespace Nop.Services.Media.RoxyFileman
         /// <returns>A task that represents the completion of the operation</returns>
         public override async Task CopyFileAsync(string sourcePath, string destinationPath)
         {
-            var filePath = _fileProvider.GetAbsolutePath(_fileProvider.GetVirtualPath(sourcePath));
+            var filePath = _fileProvider.GetAbsolutePath(sourcePath.Split('/'));
             var picture = GetPictureByFile(filePath);
 
             if (picture == null)
@@ -190,11 +349,11 @@ namespace Nop.Services.Media.RoxyFileman
         /// <returns>A task that represents the completion of the operation</returns>
         public override async Task DeleteFileAsync(string sourcePath)
         {
-            var filePath = _fileProvider.GetAbsolutePath(_fileProvider.GetVirtualPath(sourcePath));
+            var filePath = _fileProvider.GetAbsolutePath(sourcePath.Split('/'));
             var picture = GetPictureByFile(filePath);
 
             if (picture == null)
-                throw new Exception(GetLanguageResource("E_CopyFile"));
+                throw new Exception(GetLanguageResource("E_DeletеFile"));
 
             _pictureService.DeletePicture(picture);
 
@@ -235,11 +394,11 @@ namespace Nop.Services.Media.RoxyFileman
         {
             await base.MoveFileAsync(sourcePath, destinationPath);
 
-            var filePath = _fileProvider.GetAbsolutePath(_fileProvider.GetVirtualPath(sourcePath));
+            var filePath = _fileProvider.GetAbsolutePath(sourcePath.Split('/'));
             var picture = GetPictureByFile(filePath);
 
             if (picture == null)
-                throw new Exception(GetLanguageResource("E_CopyFile"));
+                throw new Exception(GetLanguageResource("E_MoveFile"));
 
             picture.VirtualPath = _fileProvider.GetVirtualPath(_fileProvider.GetVirtualPath(_fileProvider.GetDirectoryName(destinationPath)));
             _pictureService.UpdatePicture(picture);
@@ -281,7 +440,7 @@ namespace Nop.Services.Media.RoxyFileman
             var picture = GetPictureByFile(filePath);
 
             if (picture == null)
-                throw new Exception(GetLanguageResource("E_CopyFile"));
+                throw new Exception(GetLanguageResource("E_RenameFile"));
 
             picture.SeoFilename = _fileProvider.GetFileNameWithoutExtension(newName);
 

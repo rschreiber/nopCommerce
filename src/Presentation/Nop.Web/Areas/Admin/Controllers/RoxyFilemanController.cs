@@ -105,7 +105,7 @@ namespace Nop.Web.Areas.Admin.Controllers
             //create configuration
             var configuration = new
             {
-                FILES_ROOT = existingConfiguration?.FILES_ROOT ?? "/images/uploaded",
+                FILES_ROOT = existingConfiguration?.FILES_ROOT ?? NopRoxyFilemanDefaults.DefaultRootDirectory,
                 SESSION_PATH_KEY = existingConfiguration?.SESSION_PATH_KEY ?? string.Empty,
                 THUMBS_VIEW_WIDTH = existingConfiguration?.THUMBS_VIEW_WIDTH ?? "140",
                 THUMBS_VIEW_HEIGHT = existingConfiguration?.THUMBS_VIEW_HEIGHT ?? "120",

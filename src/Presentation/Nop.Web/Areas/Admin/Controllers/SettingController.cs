@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Nop.Core;
 using Nop.Core.Configuration;
 using Nop.Core.Domain;
@@ -20,6 +21,7 @@ using Nop.Core.Domain.Seo;
 using Nop.Core.Domain.Shipping;
 using Nop.Core.Domain.Tax;
 using Nop.Core.Domain.Vendors;
+using Nop.Core.Infrastructure;
 using Nop.Services.Common;
 using Nop.Services.Configuration;
 using Nop.Services.Customers;
@@ -28,6 +30,7 @@ using Nop.Services.Helpers;
 using Nop.Services.Localization;
 using Nop.Services.Logging;
 using Nop.Services.Media;
+using Nop.Services.Media.RoxyFileman;
 using Nop.Services.Messages;
 using Nop.Services.Orders;
 using Nop.Services.Security;
@@ -62,6 +65,8 @@ namespace Nop.Web.Areas.Admin.Controllers
         private readonly IOrderService _orderService;
         private readonly IPermissionService _permissionService;
         private readonly IPictureService _pictureService;
+        private readonly IRoxyFilemanService _roxyFilemanService;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ISettingModelFactory _settingModelFactory;
         private readonly ISettingService _settingService;
         private readonly IStoreContext _storeContext;
@@ -87,6 +92,8 @@ namespace Nop.Web.Areas.Admin.Controllers
             IOrderService orderService,
             IPermissionService permissionService,
             IPictureService pictureService,
+            IRoxyFilemanService roxyFilemanService,
+            IServiceScopeFactory serviceScopeFactory,
             ISettingModelFactory settingModelFactory,
             ISettingService settingService,
             IStoreContext storeContext,
@@ -108,6 +115,8 @@ namespace Nop.Web.Areas.Admin.Controllers
             this._orderService = orderService;
             this._permissionService = permissionService;
             this._pictureService = pictureService;
+            this._roxyFilemanService = roxyFilemanService;
+            this._serviceScopeFactory = serviceScopeFactory;
             this._settingModelFactory = settingModelFactory;
             this._settingService = settingService;
             this._storeContext = storeContext;
@@ -921,7 +930,17 @@ namespace Nop.Web.Areas.Admin.Controllers
             if (!_permissionService.Authorize(StandardPermissionProvider.ManageSettings))
                 return AccessDeniedView();
 
+            _roxyFilemanService.FlushAllImagesOnDisk();
+            
             _pictureService.StoreInDb = !_pictureService.StoreInDb;
+
+
+            //use "Resolve" to load the correct service
+            using (var scope = _serviceScopeFactory.CreateScope())
+            {
+                var newRoxyFilemanService =scope.ServiceProvider.GetRequiredService<IRoxyFilemanService>();
+                newRoxyFilemanService.Congigure();
+            }
 
             //activity log
             _customerActivityService.InsertActivity("EditSettings", _localizationService.GetResource("ActivityLog.EditSettings"));

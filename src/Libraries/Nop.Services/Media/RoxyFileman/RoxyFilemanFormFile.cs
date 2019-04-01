@@ -76,6 +76,6 @@ namespace Nop.Services.Media.RoxyFileman
         /// <summary>
         /// Gets the file name from the Content-Disposition header.
         /// </summary>
-        public string FileName => $"{_picture.SeoFilename}.{_fileExtension}";
+        public string FileName => $"{_picture.SeoFilename}{_fileExtension}";
     }
 }

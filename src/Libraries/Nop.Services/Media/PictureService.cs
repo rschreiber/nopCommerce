@@ -86,60 +86,6 @@ namespace Nop.Services.Media
         #endregion
 
         #region Utilities
-
-        /// <summary>
-        /// Calculates picture dimensions whilst maintaining aspect
-        /// </summary>
-        /// <param name="originalSize">The original picture size</param>
-        /// <param name="targetSize">The target picture size (longest side)</param>
-        /// <param name="resizeType">Resize type</param>
-        /// <param name="ensureSizePositive">A value indicating whether we should ensure that size values are positive</param>
-        /// <returns></returns>
-        protected virtual Size CalculateDimensions(Size originalSize, int targetSize,
-            ResizeType resizeType = ResizeType.LongestSide, bool ensureSizePositive = true)
-        {
-            float width, height;
-
-            switch (resizeType)
-            {
-                case ResizeType.LongestSide:
-                    if (originalSize.Height > originalSize.Width)
-                    {
-                        // portrait
-                        width = originalSize.Width * (targetSize / (float)originalSize.Height);
-                        height = targetSize;
-                    }
-                    else
-                    {
-                        // landscape or square
-                        width = targetSize;
-                        height = originalSize.Height * (targetSize / (float)originalSize.Width);
-                    }
-
-                    break;
-                case ResizeType.Width:
-                    width = targetSize;
-                    height = originalSize.Height * (targetSize / (float)originalSize.Width);
-                    break;
-                case ResizeType.Height:
-                    width = originalSize.Width * (targetSize / (float)originalSize.Height);
-                    height = targetSize;
-                    break;
-                default:
-                    throw new Exception("Not supported ResizeType");
-            }
-
-            if (!ensureSizePositive) 
-                return new Size((int)Math.Round(width), (int)Math.Round(height));
-
-            if (width < 1)
-                width = 1;
-            if (height < 1)
-                height = 1;
-
-            //we invoke Math.Round to ensure that no white background is rendered - https://www.nopcommerce.com/boards/t/40616/image-resizing-bug.aspx
-            return new Size((int)Math.Round(width), (int)Math.Round(height));
-        }
         
         /// <summary>
         /// Loads a picture from file
@@ -194,7 +140,7 @@ namespace Nop.Services.Media
             var currentFiles = _fileProvider.GetFiles(_fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath), filter, false);
             foreach (var currentFileName in currentFiles)
             {
-                var thumbFilePath = GetThumbLocalPath(currentFileName, _fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath));
+                var thumbFilePath = GetThumbLocalPath(currentFileName);
                 _fileProvider.DeleteFile(thumbFilePath);
             }
         }
@@ -203,10 +149,11 @@ namespace Nop.Services.Media
         /// Get picture (thumb) local path
         /// </summary>
         /// <param name="thumbFileName">Filename</param>
-        /// <param name="thumbsPath">Thumb path</param>
         /// <returns>Local picture thumb path</returns>
-        protected virtual string GetThumbLocalPath(string thumbFileName, string thumbsPath)
+        protected virtual string GetThumbLocalPath(string thumbFileName)
         {
+            var thumbsDirectoryPath = _fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath);
+
             if (_mediaSettings.MultipleThumbDirectories)
             {
                 //get the first two letters of the file name
@@ -214,15 +161,15 @@ namespace Nop.Services.Media
                 if (fileNameWithoutExtension != null && fileNameWithoutExtension.Length > NopMediaDefaults.MultipleThumbDirectoriesLength)
                 {
                     var subDirectoryName = fileNameWithoutExtension.Substring(0, NopMediaDefaults.MultipleThumbDirectoriesLength);
-                    thumbsPath = _fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath, subDirectoryName);
-                    _fileProvider.CreateDirectory(thumbsPath);
+                    thumbsDirectoryPath = _fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath, subDirectoryName);
+                    _fileProvider.CreateDirectory(thumbsDirectoryPath);
                 }
             }
 
-            var thumbFilePath = _fileProvider.Combine(thumbsPath, thumbFileName);
+            var thumbFilePath = _fileProvider.Combine(thumbsDirectoryPath, thumbFileName);
             return thumbFilePath;
         }
-
+        
         /// <summary>
         /// Get picture (thumb) URL 
         /// </summary>
@@ -308,51 +255,6 @@ namespace Nop.Services.Media
         }
 
         /// <summary>
-        /// Encode the image into a byte array in accordance with the specified image format
-        /// </summary>
-        /// <typeparam name="T">Pixel data type</typeparam>
-        /// <param name="image">Image data</param>
-        /// <param name="imageFormat">Image format</param>
-        /// <param name="quality">Quality index that will be used to encode the image</param>
-        /// <returns>Image binary data</returns>
-        protected virtual byte[] EncodeImage<T>(Image<T> image, IImageFormat imageFormat, int? quality = null) where T : struct, IPixel<T>
-        {
-            using (var stream = new MemoryStream())
-            {
-                var imageEncoder = Default.ImageFormatsManager.FindEncoder(imageFormat);
-                switch (imageEncoder)
-                {
-                    case JpegEncoder jpegEncoder:
-                        jpegEncoder.IgnoreMetadata = true;
-                        jpegEncoder.Quality = quality ?? _mediaSettings.DefaultImageQuality;
-                        jpegEncoder.Encode(image, stream);
-                        break;
-
-                    case PngEncoder pngEncoder:
-                        pngEncoder.PngColorType = PngColorType.RgbWithAlpha;
-                        pngEncoder.Encode(image, stream);
-                        break;
-
-                    case BmpEncoder bmpEncoder:
-                        bmpEncoder.BitsPerPixel = BmpBitsPerPixel.Pixel32;
-                        bmpEncoder.Encode(image, stream);
-                        break;
-
-                    case GifEncoder gifEncoder:
-                        gifEncoder.IgnoreMetadata = true;
-                        gifEncoder.Encode(image, stream);
-                        break;
-
-                    default:
-                        imageEncoder.Encode(image, stream);
-                        break;
-                }
-
-                return stream.ToArray();
-            }
-        }
-
-        /// <summary>
         /// Updates the picture binary data
         /// </summary>
         /// <param name="picture">The picture object</param>
@@ -386,7 +288,7 @@ namespace Nop.Services.Media
         #endregion
 
         #region Getting picture local path/URL methods
-
+        
         /// <summary>
         /// Returns the file extension from mime type.
         /// </summary>
@@ -478,7 +380,7 @@ namespace Nop.Services.Media
             {
                 var fileExtension = _fileProvider.GetFileExtension(filePath);
                 var thumbFileName = $"{_fileProvider.GetFileNameWithoutExtension(filePath)}_{targetSize}{fileExtension}";
-                var thumbFilePath = GetThumbLocalPath(thumbFileName, _fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath));
+                var thumbFilePath = GetThumbLocalPath(thumbFileName);
                 if (!GeneratedThumbExists(thumbFilePath, thumbFileName))
                 {
                     using (var image = Image.Load(filePath, out var imageFormat))
@@ -578,9 +480,7 @@ namespace Nop.Services.Media
                     : $"{picture.Id:0000000}_{targetSize}.{lastPart}";
             }
 
-            var thumbsDirectoryPath = _fileProvider.GetAbsolutePath(picture.VirtualPath.TrimStart('~').Trim('/').Replace("/", @"\"));
-
-            var thumbFilePath = GetThumbLocalPath(thumbFileName, thumbsDirectoryPath);
+            var thumbFilePath = GetThumbLocalPath(thumbFileName);
 
             //the named mutex helps to avoid creating the same files in different threads,
             //and does not decrease performance significantly, because the code is blocked only for the specific file.
@@ -638,7 +538,7 @@ namespace Nop.Services.Media
             if (string.IsNullOrEmpty(url))
                 return string.Empty;
 
-            return GetThumbLocalPath(_fileProvider.GetFileName(url), _fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath));
+            return GetThumbLocalPath(_fileProvider.GetFileName(url));
         }
 
         #endregion
@@ -1042,6 +942,109 @@ namespace Nop.Services.Media
 
         #endregion
 
+        #region methods
+
+         /// <summary>
+        /// Encode the image into a byte array in accordance with the specified image format
+        /// </summary>
+        /// <typeparam name="T">Pixel data type</typeparam>
+        /// <param name="image">Image data</param>
+        /// <param name="imageFormat">Image format</param>
+        /// <param name="quality">Quality index that will be used to encode the image</param>
+        /// <returns>Image binary data</returns>
+        public virtual byte[] EncodeImage<T>(Image<T> image, IImageFormat imageFormat, int? quality = null) where T : struct, IPixel<T>
+        {
+            using (var stream = new MemoryStream())
+            {
+                var imageEncoder = Default.ImageFormatsManager.FindEncoder(imageFormat);
+                switch (imageEncoder)
+                {
+                    case JpegEncoder jpegEncoder:
+                        jpegEncoder.IgnoreMetadata = true;
+                        jpegEncoder.Quality = quality ?? _mediaSettings.DefaultImageQuality;
+                        jpegEncoder.Encode(image, stream);
+                        break;
+
+                    case PngEncoder pngEncoder:
+                        pngEncoder.PngColorType = PngColorType.RgbWithAlpha;
+                        pngEncoder.Encode(image, stream);
+                        break;
+
+                    case BmpEncoder bmpEncoder:
+                        bmpEncoder.BitsPerPixel = BmpBitsPerPixel.Pixel32;
+                        bmpEncoder.Encode(image, stream);
+                        break;
+
+                    case GifEncoder gifEncoder:
+                        gifEncoder.IgnoreMetadata = true;
+                        gifEncoder.Encode(image, stream);
+                        break;
+
+                    default:
+                        imageEncoder.Encode(image, stream);
+                        break;
+                }
+
+                return stream.ToArray();
+            }
+        }
+
+        /// <summary>
+        /// Calculates picture dimensions whilst maintaining aspect
+        /// </summary>
+        /// <param name="originalSize">The original picture size</param>
+        /// <param name="targetSize">The target picture size (longest side)</param>
+        /// <param name="resizeType">Resize type</param>
+        /// <param name="ensureSizePositive">A value indicating whether we should ensure that size values are positive</param>
+        /// <returns></returns>
+        public virtual Size CalculateDimensions(Size originalSize, int targetSize,
+            ResizeType resizeType = ResizeType.LongestSide, bool ensureSizePositive = true)
+        {
+            float width, height;
+
+            switch (resizeType)
+            {
+                case ResizeType.LongestSide:
+                    if (originalSize.Height > originalSize.Width)
+                    {
+                        // portrait
+                        width = originalSize.Width * (targetSize / (float)originalSize.Height);
+                        height = targetSize;
+                    }
+                    else
+                    {
+                        // landscape or square
+                        width = targetSize;
+                        height = originalSize.Height * (targetSize / (float)originalSize.Width);
+                    }
+
+                    break;
+                case ResizeType.Width:
+                    width = targetSize;
+                    height = originalSize.Height * (targetSize / (float)originalSize.Width);
+                    break;
+                case ResizeType.Height:
+                    width = originalSize.Width * (targetSize / (float)originalSize.Height);
+                    height = targetSize;
+                    break;
+                default:
+                    throw new Exception("Not supported ResizeType");
+            }
+
+            if (!ensureSizePositive) 
+                return new Size((int)Math.Round(width), (int)Math.Round(height));
+
+            if (width < 1)
+                width = 1;
+            if (height < 1)
+                height = 1;
+
+            //we invoke Math.Round to ensure that no white background is rendered - https://www.nopcommerce.com/boards/t/40616/image-resizing-bug.aspx
+            return new Size((int)Math.Round(width), (int)Math.Round(height));
+        }
+
+        #endregion
+
         #region Properties
 
         /// <summary>
@@ -1074,6 +1077,9 @@ namespace Nop.Services.Media
 
                         foreach (var picture in pictures)
                         {
+                            if(!string.IsNullOrEmpty(picture.VirtualPath))
+                                continue;
+
                             var pictureBinary = LoadPictureBinary(picture, !value);
 
                             //we used the code below before. but it's too slow
