@@ -1,0 +1,11 @@
+﻿{
+  "Group": "Misc",
+  "FriendlyName": "Azure Application Insights Analytics",
+  "SystemName": "Azure.ApplicationInsights",
+  "Version": "0.1",
+  "SupportedVersions": [ "4.10", "4.20" ],
+  "Author": "SysWorx",
+  "DisplayOrder": 1,
+  "FileName": "Nop.Plugin.Azure.ApplicationInsights.dll",
+  "Description": "Configures the pipeline to add Application Insights capabilities."
+}
